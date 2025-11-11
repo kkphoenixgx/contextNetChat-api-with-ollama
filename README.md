@@ -1,4 +1,4 @@
-# ContextNet-api Gateway
+# ContextNet-api Gateway.
 
 Final Project (TCC) for the Information Systems degree.
 This Java application, developed with Spring Boot, acts as a **gateway** between a client web application (via WebSocket) and the **ContextNet** network, enabling real-time message sending and receiving.
