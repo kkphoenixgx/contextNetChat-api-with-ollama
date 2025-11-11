@@ -10,7 +10,7 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.function.Consumer;
 
-import br.cefet.segaudit.dto.ContextNetConfig;
+import br.cefet.segaudit.model.classes.ContextNetConfig;
 
 public class ContextNetClient implements NodeConnectionListener {
     private final UUID myUUID;

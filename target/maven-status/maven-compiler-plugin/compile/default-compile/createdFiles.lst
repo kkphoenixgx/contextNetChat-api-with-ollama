@@ -1,7 +1,0 @@
-br\cefet\segaudit\factory\ContextNetClientFactory.class
-br\cefet\segaudit\service\ContextNetClient.class
-br\cefet\segaudit\controller\ContextNetWebSocketHandler.class
-br\cefet\segaudit\config\WebSocketConfig.class
-br\cefet\segaudit\Sender.class
-br\cefet\segaudit\dto\ContextNetConfig.class
-br\cefet\segaudit\SegAudit.class
