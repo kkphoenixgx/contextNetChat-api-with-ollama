@@ -26,61 +26,69 @@ public class ContextNetWebSocketController extends TextWebSocketHandler {
     private final List<WebSocketSession> sessions = new CopyOnWriteArrayList<>();
 
     private AIService aiService;
-    private IModelManagaer gemma3ModelManagaer;
+    private final IModelManagaer gemma3ModelManagaer;
 
-    public ContextNetWebSocketController(ContextNetClientFactory factory) {
+    public ContextNetWebSocketController(ContextNetClientFactory factory, IModelManagaer gemma3ModelManagaer) {
         this.contextNetClientFactory = factory;
+        this.gemma3ModelManagaer = gemma3ModelManagaer;
+        // this.aiService = new AIService(this.gemma3ModelManagaer);
     }
 
     @Override
     public void afterConnectionEstablished(WebSocketSession session) {
         sessions.add(session);
-        
-        try {
-            this.gemma3ModelManagaer = new Gemma3Manager();
-            this.aiService = new AIService(this.gemma3ModelManagaer);
-        } 
-        catch (Exception e) {
-            e.printStackTrace();
-        }
-    
     }
 
     @Override
     public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {
         sessions.remove(session);
         clients.remove(session.getId());
+        // Encerra a sessão no gerenciador do modelo de IA
+        gemma3ModelManagaer.endSession(session.getId());
+        System.out.println("Sessão WebSocket fechada: " + session.getId() + ". Cliente e sessão de IA removidos.");
     }
 
     @Override
     protected void handleTextMessage(WebSocketSession session, TextMessage message) {
-        String clientMessage = message.getPayload();
+        String payload = message.getPayload();
+        String sessionId = session.getId();
 
-        List<String> kqmlMessages = this.aiService.getKQMLMessages(clientMessage);
-
-
-        for ( String currentPayload :  kqmlMessages) {
-         
-            try {
-
-                if (!clients.containsKey(session.getId())) {
-                    ContextNetConfig config = new ObjectMapper().readValue(currentPayload, ContextNetConfig.class);
-
-                    ContextNetClient client = contextNetClientFactory.create(config, (msg) -> {
-                        sendToSession(session, msg);
-                    });
-
-                    clients.put(session.getId(), client);
-                } else {
-                    ContextNetClient client = clients.get(session.getId());
-                    client.sendToContextNet(currentPayload);
-                }
-            } catch (Exception e) {
-                e.printStackTrace();
+        try {
+            if (!clients.containsKey(sessionId)) {
+                handleFirstMessage(session, payload);
+            } else {
+                handleSubsequentMessages(session, payload);
             }
-
+        } catch (Exception e) {
+            e.printStackTrace();
+            sendToSession(session, "Erro no servidor: " + e.getMessage());
         }
+    }
+
+    private void handleFirstMessage(WebSocketSession session, String payload) throws Exception {
+        String sessionId = session.getId();
+        ContextNetConfig config = new ObjectMapper().readValue(payload, ContextNetConfig.class);
+
+        // Cria o cliente e o armazena.
+        ContextNetClient client = contextNetClientFactory.create(config, (msg) -> {
+            sendToSession(session, msg);
+        });
+        clients.put(sessionId, client);
         
+        sendToSession(session, "Conexão estabelecida e sessão de IA iniciada.");
+    }
+
+    private void handleSubsequentMessages(WebSocketSession session, String payload) {
+        String sessionId = session.getId();
+        ContextNetClient client = clients.get(sessionId);
+
+        // Traduz a mensagem do usuário para um ou mais comandos KQML.
+        List<String> kqmlMessages = this.aiService.getKQMLMessages(sessionId, payload);
+
+        // Envia cada comando KQML para a ContextNet.
+        for (String kqmlMessage : kqmlMessages) {
+            client.sendToContextNet(kqmlMessage);
+        }
     }
 
     private void sendToSession(WebSocketSession session, String msg) {

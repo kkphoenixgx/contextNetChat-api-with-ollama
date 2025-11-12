@@ -9,16 +9,16 @@ public class AIService {
 
     public IModelManagaer modelManagaer;
 
-    public AIService(IModelManagaer modelManager){
+    public AIService(IModelManagaer modelManager, String sessionId, String agentPlans ){
         this.modelManagaer = modelManager;
-        this.modelManagaer.initSession();
+        this.modelManagaer.initializeUserSession(sessionId, agentPlans);
     }
 
-    public List<String> getKQMLMessages(String message){
+    public List<String> getKQMLMessages(String sessionId, String message){
         List<String> responses = new ArrayList<String>();
 
         try {
-            this.modelManagaer.translateMessage(message);
+            this.modelManagaer.translateMessage(sessionId, message);
         } catch (Exception e) {
             e.printStackTrace();
         }
