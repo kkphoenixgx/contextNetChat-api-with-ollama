@@ -8,32 +8,35 @@ Link para o Diagrama da Arquitetura
 
 ## Estrutura do Projeto
 
-A aplicação segue uma estrutura padrão de projetos Spring Boot, organizada por funcionalidade.
+A aplicação segue uma estrutura padrão de projetos Spring Boot, organizada por camadas, uma **camada modelo**, **uma controller** e uma **service** para serviços, além de duas camadas auxiliares. A escolha da arquitetura foi definida pela natureza do projeto, onde o servidor é uma ponte de serviços, um para uma IA e um para a ContextNet
 
 ```
 contextnetchat-api/
 ├── libs/
 │   └── contextnet-2.7-spring.jar  # Dependência local da ContextNet
+│
 ├── src/main/java/br/cefet/segaudit/
-│   ├── AIContextManager/            # Lógica de interação com o modelo de IA (Ollama)
-│   │   ├── gemma3/                  # Implementação específica para um modelo
+│   ├── AIContextManager/             # Lógica de interação com o modelo de IA (Ollama)
+│   │   ├── gemma3/                   # Implementação específica para um modelo
 │   │   │   └── Gemma3Manager.java
 │   │   ├── IO/
 │   │   │   └── FileUtil.java
-│   ├── config/                      # Configurações do Spring (WebSocketConfig)
-│   ├── controller/                  # Ponto de entrada da aplicação (ContextNetWebSocketController)
-│   ├── interfaces/                  # Contratos da aplicação (IModelManagaer)
-│   ├── model/                       # DTOs e Factories da aplicação
-│   ├── service/                     # Lógica de negócio e clientes de rede
+│   ├── config/                       # Configurações do Spring (WebSocketConfig)
+│   ├── controller/                   # Ponto de entrada da aplicação (ContextNetWebSocketController)
+│   ├── interfaces/                   # Contratos da aplicação (IModelManagaer)
+│   ├── model/                        # DTOs e Factories da aplicação
+│   ├── service/                      # Lógica de negócio e clientes de rede
 │   │   ├── AIService.java
 │   │   └── ContextNetClient.java
-│   ├── SegAudit.java                # Classe principal da aplicação Spring Boot
-│   └── Sender.java                  # Classe de baixo nível para comunicação com a ContextNet
+│   │   └── Sender.java               # Classe de baixo nível para comunicação com a ContextNet
+│   └── SegAudit.java                 # Classe principal da aplicação Spring Boot
+│
 ├── src/main/resources/
-│   ├── br/cefet/segaudit/.../gemma3/ # Arquivos de recurso espelhando a estrutura de pacotes
-│   │   └── gemma3Context.txt        # Prompt de contexto base para o modelo
-│   └── application.properties       # Arquivo principal de configuração
-└── pom.xml                          # Arquivo de configuração do Maven
+│   ├── /gemma3/                      # Arquivos de recurso espelhando a estrutura de pacotes
+│   │   └── gemma3Context.txt         # Prompt de contexto base para o modelo
+│   └── application.properties        # Arquivo principal de configuração
+│
+└── pom.xml                           # Arquivo de configuração do Maven
 ```
 
 ## To-Do List

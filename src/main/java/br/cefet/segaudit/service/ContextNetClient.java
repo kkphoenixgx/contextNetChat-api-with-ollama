@@ -1,6 +1,5 @@
 package br.cefet.segaudit.service;
 
-import br.cefet.segaudit.Sender;
 import lac.cnclib.net.NodeConnection;
 import lac.cnclib.net.NodeConnectionListener;
 import lac.cnclib.sddl.message.Message;
