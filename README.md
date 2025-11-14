@@ -20,7 +20,6 @@ contextnetchat-api/
 │   │   │   └── Gemma3Manager.java
 │   │   ├── IO/
 │   │   │   └── FileUtil.java
-│   │   └── Model/                   # DTOs para a API do Ollama
 │   ├── config/                      # Configurações do Spring (WebSocketConfig)
 │   ├── controller/                  # Ponto de entrada da aplicação (ContextNetWebSocketController)
 │   ├── interfaces/                  # Contratos da aplicação (IModelManagaer)
