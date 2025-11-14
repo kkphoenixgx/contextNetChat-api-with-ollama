@@ -41,16 +41,6 @@ contextnetchat-api/
 - [x] Assim que a conexão com a web socket morrer, precisa fechar a conexão com o modelo (Manager).
   - *Implementado no método `afterConnectionClosed` do `ContextNetWebSocketController`.*
 
-## Perguntas e Respostas
-
-> **Pergunta:** "Ele recupera o `long[] context` da sessão atual do mapa `activeSessions`. Este contexto é a 'memória' da conversa." O quanto isso é necessário? A gente não precisa só manter esse chat aberto para não precisar mandar de novo o contexto inicial?
-
-**Resposta:** É **absolutamente necessário**. O `long[] context` é a essência do funcionamento stateful da API `/api/generate` do Ollama. Ele é muito mais do que uma forma de evitar reenviar o prompt inicial.
-
-A cada chamada, o Ollama usa o `context` anterior para entender a nova mensagem dentro da "memória" da conversa. Sem ele, cada mensagem seria tratada como o início de uma conversa totalmente nova, e a IA não teria como relacionar comandos sequenciais (ex: "suba 10 metros" e depois "agora vire à esquerda").
-
-Ao receber a resposta, o Ollama envia um **novo** `context` atualizado. É fundamental que o nosso servidor armazene este novo contexto para usá-lo na próxima requisição, mantendo assim a continuidade da conversa.
-
 ---
 
 ## Fluxo de Execução
