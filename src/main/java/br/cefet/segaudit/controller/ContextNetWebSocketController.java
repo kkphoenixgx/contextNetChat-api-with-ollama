@@ -1,7 +1,6 @@
 package br.cefet.segaudit.controller;
 
-import br.cefet.segaudit.AIContextManager.gemma3.Gemma3Manager;
-import br.cefet.segaudit.interfaces.IModelManagaer;
+import br.cefet.segaudit.model.interfaces.IModelManagaer;
 import br.cefet.segaudit.model.classes.ContextNetConfig;
 import br.cefet.segaudit.model.factories.ContextNetClientFactory;
 import br.cefet.segaudit.service.AIService;

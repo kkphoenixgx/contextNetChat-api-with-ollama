@@ -1,4 +1,4 @@
-package br.cefet.segaudit.interfaces;
+package br.cefet.segaudit.model.interfaces;
 
 import java.util.List;
 

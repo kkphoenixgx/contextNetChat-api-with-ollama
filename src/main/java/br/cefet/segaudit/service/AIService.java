@@ -2,7 +2,7 @@ package br.cefet.segaudit.service;
 
 import java.util.List;
 
-import br.cefet.segaudit.interfaces.IModelManagaer;
+import br.cefet.segaudit.model.interfaces.IModelManagaer;
 
 public class AIService {
 

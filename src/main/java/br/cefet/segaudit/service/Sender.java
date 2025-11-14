@@ -1,4 +1,4 @@
-package br.cefet.segaudit;
+package br.cefet.segaudit.service;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;

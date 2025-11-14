@@ -14,15 +14,14 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.Resource;
-import org.springframework.core.io.ResourceLoader;
 import org.springframework.stereotype.Component;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import br.cefet.segaudit.AIContextManager.IO.FileUtil;
-import br.cefet.segaudit.AIContextManager.Model.GenerateRequest;
-import br.cefet.segaudit.AIContextManager.Model.GenerateResponse;
-import br.cefet.segaudit.interfaces.IModelManagaer;
+import br.cefet.segaudit.model.classes.IAGenerateRequest;
+import br.cefet.segaudit.model.classes.IAGenerateResponse;
+import br.cefet.segaudit.model.interfaces.IModelManagaer;
 
 @Component
 public class Gemma3Manager implements IModelManagaer {
@@ -55,11 +54,11 @@ public class Gemma3Manager implements IModelManagaer {
             throw new IllegalStateException("Erro: Sessão do usuário não foi inicializada corretamente.");
             }
 
-            GenerateRequest request = new GenerateRequest(modelName, userMessage, currentContext);
+            IAGenerateRequest request = new IAGenerateRequest(modelName, userMessage, currentContext);
             String jsonBody = objectMapper.writeValueAsString(request);
             logger.debug("Ollama translate request for session {}: {}", sessionId, jsonBody);
 
-            GenerateResponse response = makeRequest(jsonBody);
+            IAGenerateResponse response = makeRequest(jsonBody);
 
             activeSessions.put(sessionId, response.context());
 
@@ -91,11 +90,11 @@ public class Gemma3Manager implements IModelManagaer {
 
             String initialPrompt = context + "\n" + agentPlans;
 
-            GenerateRequest request = new GenerateRequest(modelName, initialPrompt);
+            IAGenerateRequest request = new IAGenerateRequest(modelName, initialPrompt);
             String jsonBody = objectMapper.writeValueAsString(request);
             logger.debug("Ollama init request for session {}: {}", sessionId, jsonBody);
     
-            GenerateResponse response = makeRequest(jsonBody);
+            IAGenerateResponse response = makeRequest(jsonBody);
     
             activeSessions.put(sessionId, response.context());
             logger.info("Session {} initialized and model context loaded.", sessionId);
@@ -107,7 +106,7 @@ public class Gemma3Manager implements IModelManagaer {
     }
 
     /** Makes a POST request to the Ollama API with the given JSON body. */
-    private GenerateResponse makeRequest(String jsonBody) throws IOException, InterruptedException {
+    private IAGenerateResponse makeRequest(String jsonBody) throws IOException, InterruptedException {
 
         HttpRequest request = HttpRequest.newBuilder()
             .uri(URI.create(ollamaUrl))
@@ -118,7 +117,7 @@ public class Gemma3Manager implements IModelManagaer {
         HttpResponse<String> httpResponse = client.send(request, HttpResponse.BodyHandlers.ofString());
 
         if (httpResponse.statusCode() >= 200 && httpResponse.statusCode() < 300) {
-            return objectMapper.readValue(httpResponse.body(), GenerateResponse.class);
+            return objectMapper.readValue(httpResponse.body(), IAGenerateResponse.class);
         } else {
             logger.error("Ollama API returned error. Status: {}, Body: {}", httpResponse.statusCode(), httpResponse.body());
             throw new IOException("Request to Ollama API failed with status code " + httpResponse.statusCode());
