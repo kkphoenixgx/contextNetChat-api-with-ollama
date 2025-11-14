@@ -10,8 +10,9 @@ import br.cefet.segaudit.service.ContextNetClient;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.CopyOnWriteArrayList;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.*;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
@@ -20,84 +21,109 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 @Component
 public class ContextNetWebSocketController extends TextWebSocketHandler {
+    private static final Logger logger = LoggerFactory.getLogger(ContextNetWebSocketController.class);
+
     private final ContextNetClientFactory contextNetClientFactory;
 
     private final Map<String, ContextNetClient> clients = new ConcurrentHashMap<>();
-    private final List<WebSocketSession> sessions = new CopyOnWriteArrayList<>();
+    private final Map<String, AIService> aiServices = new ConcurrentHashMap<>();
+    private final IModelManagaer modelManagaer;
+    private final ObjectMapper objectMapper;
 
-    private AIService aiService;
-    private final IModelManagaer gemma3ModelManagaer;
-
-    public ContextNetWebSocketController(ContextNetClientFactory factory, IModelManagaer gemma3ModelManagaer) {
+    /** Initializes the controller with required factories and managers for handling WebSocket connections. */
+    public ContextNetWebSocketController(ContextNetClientFactory factory, IModelManagaer modelManagaer, ObjectMapper objectMapper) {
         this.contextNetClientFactory = factory;
-        this.gemma3ModelManagaer = gemma3ModelManagaer;
-        // this.aiService = new AIService(this.gemma3ModelManagaer);
+        this.modelManagaer = modelManagaer;
+        this.objectMapper = objectMapper;
     }
 
+    //? ----------- Methods -----------
+    /** Invoked after a new WebSocket connection is established, preparing it to receive messages. */
     @Override
     public void afterConnectionEstablished(WebSocketSession session) {
-        sessions.add(session);
+        logger.info("WebSocket session opened: {}", session.getId());
     }
 
-    @Override
-    public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {
-        sessions.remove(session);
-        clients.remove(session.getId());
-        // Encerra a sessão no gerenciador do modelo de IA
-        gemma3ModelManagaer.endSession(session.getId());
-        System.out.println("Sessão WebSocket fechada: " + session.getId() + ". Cliente e sessão de IA removidos.");
-    }
-
+    /** Handles incoming text messages, routing them to initialize the session or process subsequent commands. */
     @Override
     protected void handleTextMessage(WebSocketSession session, TextMessage message) {
         String payload = message.getPayload();
         String sessionId = session.getId();
-
+        
         try {
-            if (!clients.containsKey(sessionId)) {
+            if (!clients.containsKey(sessionId)) { // First message
                 handleFirstMessage(session, payload);
-            } else {
+            } 
+            else {
                 handleSubsequentMessages(session, payload);
             }
         } catch (Exception e) {
-            e.printStackTrace();
-            sendToSession(session, "Erro no servidor: " + e.getMessage());
+            logger.error("Error handling message for session {}", sessionId, e);
+            sendToSession(session, "Server error: " + e.getMessage());
         }
     }
 
+    /** Handles the first message from a client, which contains configuration to initialize the ContextNet client and AI session.
+    //?First Message is a JSON with connection configs*/
     private void handleFirstMessage(WebSocketSession session, String payload) throws Exception {
         String sessionId = session.getId();
-        ContextNetConfig config = new ObjectMapper().readValue(payload, ContextNetConfig.class);
+        ContextNetConfig config = objectMapper.readValue(payload, ContextNetConfig.class);
 
-        // Cria o cliente e o armazena.
         ContextNetClient client = contextNetClientFactory.create(config, (msg) -> {
             sendToSession(session, msg);
         });
         clients.put(sessionId, client);
-        
-        sendToSession(session, "Conexão estabelecida e sessão de IA iniciada.");
+
+        //? Handling agent context
+        client.fetchAgentPlans()
+          .thenAccept(agentPlans -> {
+            logger.info("Received plans {}: {}", sessionId, agentPlans);
+
+            AIService aiService = new AIService(this.modelManagaer, sessionId, agentPlans);
+            aiServices.put(sessionId, aiService);
+                
+            sendToSession(session, "Connection stabilized and IA session ready.");
+          })
+          .exceptionally(ex -> {
+            logger.error("getPlans falied{}", sessionId, ex);
+            sendToSession(session, "Error: Could not get plans from agent.");
+            return null;
+          });
+
     }
 
+    /** Handles all messages after the initial setup, translating user input into KQML commands and sending them to the ContextNet. */
     private void handleSubsequentMessages(WebSocketSession session, String payload) {
         String sessionId = session.getId();
-        ContextNetClient client = clients.get(sessionId);
+        ContextNetClient contextNetClient = this.clients.get(sessionId);
+        AIService aiService = this.aiServices.get(sessionId);
 
-        // Traduz a mensagem do usuário para um ou mais comandos KQML.
-        List<String> kqmlMessages = this.aiService.getKQMLMessages(sessionId, payload);
+        List<String> kqmlMessages = aiService.getKQMLMessages(sessionId, payload);
 
-        // Envia cada comando KQML para a ContextNet.
         for (String kqmlMessage : kqmlMessages) {
-            client.sendToContextNet(kqmlMessage);
+            contextNetClient.sendToContextNet(kqmlMessage);
         }
     }
 
+    /** Invoked when a WebSocket connection is closed, performing cleanup by removing the client and terminating the AI model session. */
+    @Override
+    public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {
+        String sessionId = session.getId();
+        clients.remove(sessionId);
+        aiServices.remove(sessionId);
+        modelManagaer.endSession(sessionId);
+        logger.info("WebSocket and AI sessions closed for id: {}", sessionId);
+    }
+
+    //? ----------- Helpers -----------
+
+    /** Sends a string message to a specific WebSocket session if it is open. */
     private void sendToSession(WebSocketSession session, String msg) {
         try {
-            if (session.isOpen()) {
-                session.sendMessage(new TextMessage(msg));
-            }
-        } catch (Exception e) {
-            e.printStackTrace();
+            if (session.isOpen())  session.sendMessage(new TextMessage(msg));
+        } 
+        catch (Exception e) {
+            logger.error("Failed to send message to session {}", session.getId(), e);
         }
     }
 }

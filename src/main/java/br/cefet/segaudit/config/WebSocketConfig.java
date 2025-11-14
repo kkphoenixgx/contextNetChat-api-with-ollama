@@ -9,16 +9,16 @@ import br.cefet.segaudit.controller.ContextNetWebSocketController;
 @EnableWebSocket
 public class WebSocketConfig implements WebSocketConfigurer {
 
-    private final ContextNetWebSocketController handler;
+    private final ContextNetWebSocketController contextNetWebSocketController;
 
-    public WebSocketConfig(ContextNetWebSocketController handler) {
-        this.handler = handler;
+    public WebSocketConfig(ContextNetWebSocketController contextNetWebSocketController) {
+        this.contextNetWebSocketController = contextNetWebSocketController;
     }
 
     @Override
     public void registerWebSocketHandlers(WebSocketHandlerRegistry registry) {
         registry
-                .addHandler(handler, "/ws")
+                .addHandler(contextNetWebSocketController, "/ws")
                 .setAllowedOrigins("*");
     }
 }

@@ -1,8 +1,11 @@
 package br.cefet.segaudit.AIContextManager.IO;
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import org.springframework.core.io.Resource;
 
 public class FileUtil {
 
@@ -15,5 +18,12 @@ public class FileUtil {
    */
   public static String readFileAsString(String filePath) throws IOException {
     return Files.readString(Paths.get(filePath));
+  }
+
+  /** Reads the entire content of a classpath resource and returns it as a single String. */
+  public static String readResourceAsString(Resource resource) throws IOException {
+    try (InputStream inputStream = resource.getInputStream()) {
+        return new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
+    }
   }
 }

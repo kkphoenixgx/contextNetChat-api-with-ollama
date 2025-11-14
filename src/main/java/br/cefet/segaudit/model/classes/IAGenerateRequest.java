@@ -1,6 +1,6 @@
 package br.cefet.segaudit.AIContextManager.Model;
 
-public record GenerateRequest(String model, String prompt, long[] context, boolean stream) {
+public record IAGenerateRequest(String model, String prompt, long[] context, boolean stream) {
 
     public GenerateRequest(String model, String prompt) {
         this(model, prompt, null, false);

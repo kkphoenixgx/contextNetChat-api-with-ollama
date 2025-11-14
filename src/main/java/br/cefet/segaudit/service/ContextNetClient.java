@@ -8,11 +8,17 @@ import lac.cnclib.sddl.message.Message;
 import java.util.Queue;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import br.cefet.segaudit.model.classes.ContextNetConfig;
 
 public class ContextNetClient implements NodeConnectionListener {
+    private static final Logger logger = LoggerFactory.getLogger(ContextNetClient.class);
     private final UUID myUUID;
     private final UUID destinationUUID;
     private final String gatewayIP;
@@ -21,6 +27,7 @@ public class ContextNetClient implements NodeConnectionListener {
     private Consumer<String> messageHandler;
     private final Queue<String> messageQueue = new ConcurrentLinkedQueue<>();
     private volatile boolean isConnected = false;
+    private final AtomicReference<CompletableFuture<String>> initialPlanFuture = new AtomicReference<>();
 
     public ContextNetClient(ContextNetConfig config, Consumer<String> messageHandler) {
         this.gatewayIP = config.gatewayIP;
@@ -29,16 +36,21 @@ public class ContextNetClient implements NodeConnectionListener {
         this.destinationUUID = config.destinationUUID;
         this.messageHandler = messageHandler;
 
-        System.out.println("Conectando ao gateway " + gatewayIP + ":" + gatewayPort);
-        System.out.println("De: " + myUUID + " - Para: " + destinationUUID);
+        logger.info("Connecting to ContextNet gateway at {}:{}", gatewayIP, gatewayPort);
+        logger.info("Session UUID: {}, Destination UUID: {}", myUUID, destinationUUID);
 
         this.sender = new Sender(gatewayIP, gatewayPort, myUUID, destinationUUID, this::handleIncomingMessage);
         this.sender.setConnectionListener(this);
-        //enqueueMessage("<mid1," + destinationUUID + ",tell," + myUUID + ",numeroDaSorte(3337)>");
     }
 
     private void handleIncomingMessage(String message) {
-        System.out.println("[WebSocket] Recebido da ContextNet: " + message);
+        logger.debug("Received from ContextNet: {}", message);
+        CompletableFuture<String> future = initialPlanFuture.get();
+        // Se estivermos esperando pela resposta dos planos, complete o Future.
+        if (future != null && !future.isDone()) {
+            initialPlanFuture.set(null); // Consome o future
+            future.complete(message);
+        }
         if (messageHandler != null) {
             messageHandler.accept(message);
         }
@@ -46,6 +58,14 @@ public class ContextNetClient implements NodeConnectionListener {
 
     public void setMessageHandler(Consumer<String> handler) {
         this.messageHandler = handler;
+    }
+
+    public CompletableFuture<String> fetchAgentPlans() {
+        CompletableFuture<String> future = new CompletableFuture<>();
+        initialPlanFuture.set(future);
+        sendToContextNet("(achieve :content (getPlans))");
+
+        return future;
     }
 
     public void sendToContextNet(String message) {
@@ -57,30 +77,30 @@ public class ContextNetClient implements NodeConnectionListener {
 
     private void enqueueMessage(String message) {
         if (isConnected) {
-            System.out.println("[WebSocket] Enviando para ContextNet: " + message);
+            logger.debug("Sending to ContextNet: {}", message);
             sender.sendMessage(message);
         } else {
-            System.out.println("[WebSocket] Conexão ainda não estabelecida. Enfileirando: " + message);
+            logger.warn("Connection not yet established. Enqueuing message: {}", message);
             messageQueue.add(message);
         }
     }
 
     @Override
     public void connected(NodeConnection remoteCon) {
-        System.out.println("[WebSocket] Conexão UDP estabelecida com ContextNet.");
+        logger.info("UDP connection established with ContextNet.");
         isConnected = true;
 
         while (!messageQueue.isEmpty()) {
             String msg = messageQueue.poll();
-            System.out.println("[WebSocket] Enviando mensagem da fila: " + msg);
+            logger.info("Sending enqueued message: {}", msg);
             sender.sendMessage(msg);
         }
     }
 
     @Override
     public void newMessageReceived(NodeConnection arg0, Message message) {
-        String received = (String) message.getContentObject();
-        System.out.println("[WebSocket] Mensagem recebida Intern: " + received);
+        // This method appears redundant as the Sender's callback is already handling messages.
+        // The primary logic is in handleIncomingMessage.
     }
 
     @Override
@@ -90,13 +110,17 @@ public class ContextNetClient implements NodeConnectionListener {
 
     @Override
     public void disconnected(NodeConnection remoteCon) {
+        logger.warn("Disconnected from ContextNet.");
+        isConnected = false;
     }
 
     @Override
     public void unsentMessages(NodeConnection remoteCon, java.util.List<Message> unsentMessages) {
+        logger.warn("There are {} unsent messages.", unsentMessages.size());
     }
 
     @Override
     public void internalException(NodeConnection remoteCon, Exception e) {
+        logger.error("Internal exception in ContextNet connection.", e);
     }
 }

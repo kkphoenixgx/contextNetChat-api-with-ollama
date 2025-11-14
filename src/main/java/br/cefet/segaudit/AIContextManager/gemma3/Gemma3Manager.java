@@ -5,10 +5,16 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.io.Resource;
+import org.springframework.core.io.ResourceLoader;
 import org.springframework.stereotype.Component;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -21,30 +27,29 @@ import br.cefet.segaudit.interfaces.IModelManagaer;
 @Component
 public class Gemma3Manager implements IModelManagaer {
 
-  private final HttpClient client = HttpClient.newHttpClient();
-  private final ObjectMapper objectMapper = new ObjectMapper();
+    private static final Logger logger = LoggerFactory.getLogger(Gemma3Manager.class);
 
-  @Value("${ollama.api.url}")
-  private String ollamaUrl;
+    private final HttpClient client = HttpClient.newHttpClient();
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
-  @Value("${ollama.model.name}")
-  private String modelName;
+    @Value("${ollama.api.url}")
+    private String ollamaUrl;
 
-  @Value("${ollama.model.contextPath}")
-  private String contextPath;
+    @Value("${ollama.model.name}")
+    private String modelName;
+
+    @Value("${ollama.model.context-path}")
+    private Resource contextResource;
 
 
-  private final Map<String, long[]> activeSessions = new ConcurrentHashMap<>();
+    private final Map<String, long[]> activeSessions = new ConcurrentHashMap<>();
 
+    /** Translates a user message into a list of KQML commands using the session context. */
     @Override
-    public String translateMessage(String sessionId, String userMessage) {
-
-        if (!activeSessions.containsKey(sessionId)) {
-            // initializeUserSession(sessionId);
-        }
-
+    public List<String> translateMessage(String sessionId, String userMessage) {
+    
         try {
-            long[] currentContext = activeSessions.get(sessionId);
+            final long[] currentContext = activeSessions.get(sessionId);
             
             if (currentContext == null) {
             throw new IllegalStateException("Erro: Sessão do usuário não foi inicializada corretamente.");
@@ -52,48 +57,56 @@ public class Gemma3Manager implements IModelManagaer {
 
             GenerateRequest request = new GenerateRequest(modelName, userMessage, currentContext);
             String jsonBody = objectMapper.writeValueAsString(request);
+            logger.debug("Ollama translate request for session {}: {}", sessionId, jsonBody);
 
             GenerateResponse response = makeRequest(jsonBody);
 
             activeSessions.put(sessionId, response.context());
 
-            return response.response().trim();
+            String rawResponse = response.response().trim();
+            logger.info("Ollama raw response for session {}: {}", sessionId, rawResponse);
+
+            return Arrays.asList(rawResponse.split("\\r?\\n"));
         } 
         catch (Exception e) {
-            e.printStackTrace();
-            return "Erro na tradução para KQML: " + e.getMessage();
+            logger.error("Failed to translate message for session {}", sessionId, e);
+            // Retorna uma lista com uma única mensagem de erro para o cliente.
+            return List.of("Erro na tradução para KQML: " + e.getMessage());
         }
-        }
+    }
     
-        @Override
-        public void endSession(String sessionId) {
+    /** Ends the AI model session for the given session ID. */
+    @Override
+    public void endSession(String sessionId) {
         activeSessions.remove(sessionId);
-        System.out.println("Sessão do modelo de IA encerrada para: " + sessionId);
+        logger.info("AI model session ended for: {}", sessionId);
     }
 
-
+    /** Initializes a user session with the base context and agent-specific plans. */
     @Override
     public void initializeUserSession(String sessionId, String agentPlans) {
         
         try {
-            String context = FileUtil.readFileAsString(contextPath);
+            String context = FileUtil.readResourceAsString(contextResource);
 
             String initialPrompt = context + "\n" + agentPlans;
 
             GenerateRequest request = new GenerateRequest(modelName, initialPrompt);
             String jsonBody = objectMapper.writeValueAsString(request);
+            logger.debug("Ollama init request for session {}: {}", sessionId, jsonBody);
     
             GenerateResponse response = makeRequest(jsonBody);
     
             activeSessions.put(sessionId, response.context());
-            System.out.println("Sessão " + sessionId + " iniciada e contexto do modelo carregado.");
+            logger.info("Session {} initialized and model context loaded.", sessionId);
         } 
         catch (Exception e) {
-            e.printStackTrace();
+            logger.error("Failed to initialize user session {}", sessionId, e);
             throw new RuntimeException("Falha ao inicializar a sessão do usuário: " + sessionId, e);
         }
     }
 
+    /** Makes a POST request to the Ollama API with the given JSON body. */
     private GenerateResponse makeRequest(String jsonBody) throws IOException, InterruptedException {
 
         HttpRequest request = HttpRequest.newBuilder()
@@ -104,7 +117,12 @@ public class Gemma3Manager implements IModelManagaer {
 
         HttpResponse<String> httpResponse = client.send(request, HttpResponse.BodyHandlers.ofString());
 
-        return objectMapper.readValue(httpResponse.body(), GenerateResponse.class);
+        if (httpResponse.statusCode() >= 200 && httpResponse.statusCode() < 300) {
+            return objectMapper.readValue(httpResponse.body(), GenerateResponse.class);
+        } else {
+            logger.error("Ollama API returned error. Status: {}, Body: {}", httpResponse.statusCode(), httpResponse.body());
+            throw new IOException("Request to Ollama API failed with status code " + httpResponse.statusCode());
+        }
     
     }
 
