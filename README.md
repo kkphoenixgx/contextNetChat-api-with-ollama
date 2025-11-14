@@ -1,10 +1,10 @@
 # AI Gateway para ContextNet
 
-Este projeto é um servidor Java construído com Spring Boot que atua como um gateway de IA (`AIGateway`). Ele gerencia múltiplas conexões WebSocket, traduzindo comandos de usuários em linguagem natural para comandos KQML que podem ser executados por um agente na ContextNet.
+Este projeto é um servidor Java construído com Spring Boot que atua na gerencia múltiplas conexões WebSocket, traduzindo comandos de usuários em linguagem natural para comandos KQML que podem ser executados por um determinado agente na ContextNet.
 
 A arquitetura foi desenhada para ser modular e escalável, permitindo a fácil integração de diferentes modelos de IA no futuro.
 
-Link para o Diagrama da Arquitetura
+[Link para o Diagrama da Arquitetura](https://excalidraw.com/#json=k9zCGCMhFH1wJUXlGwGxx,BrL0YaoExxKpFoJ28llLOA)
 
 ## Estrutura do Projeto
 
@@ -42,7 +42,7 @@ contextnetchat-api/
 ## To-Do List
 
 - [x] Assim que a conexão com a web socket morrer, precisa fechar a conexão com o modelo (Manager).
-  - *Implementado no método `afterConnectionClosed` do `ContextNetWebSocketController`.*
+    - *Implementado no método `afterConnectionClosed` do `ContextNetWebSocketController`.*
 
 ---
 
