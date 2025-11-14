@@ -1,0 +1,45 @@
+{
+	"folders": [
+		{
+			"path": "../"
+		}
+	],
+
+	"extensions": {
+		"recommendations": [
+			// life candys:
+			"aaron-bond.better-comments",
+			"alefragnani.Bookmarks",
+			"christian-kohler.path-intellisense",
+			"dzhavat.bracket-pair-toggler",
+			"PKief.material-icon-theme",
+			"usernamehw.errorlens",
+			"developer2006.svg-gallery",
+			"eliostruyf.vscode-hide-comments",
+			"kdcro101.favorites",
+
+			// theme:
+			"tinaciousdesign.theme-tinaciousdesign",
+			
+			// Workspace Essentials:
+			"redhat.java",
+			"vscjava.vscode-java-debug",
+			"vscjava.vscode-maven",
+			"vscjava.vscode-java-dependency",
+			"vmware.vscode-boot-dev-pack",
+		]
+	},
+
+	"settings": {
+		"workbench.colorTheme": "Tinacious Design (High Contrast)",
+		"workbench.iconTheme": "material-icon-theme",
+		"editor.fontFamily": "Fira Code",
+		"editor.fontWeight": "450",
+		"editor.fontSize": 13.5,
+		"editor.tabSize": 2,
+		"editor.tokenColorCustomizations": {
+			"textMateRules": [],
+			"comments": ""
+		}
+	}
+}
