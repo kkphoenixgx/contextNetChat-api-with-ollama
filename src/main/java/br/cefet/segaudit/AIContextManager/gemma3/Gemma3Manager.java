@@ -95,8 +95,8 @@ public class Gemma3Manager implements IModelManagaer {
             String promptTemplate = FileUtil.readResourceAsString(contextResource);
 
             // 2. Substitui o placeholder pela lista de planos real do agente.
-            // O agente agora envia uma string formatada com descrições.
-            // Apenas extraímos o conteúdo de dentro das aspas.
+            // O formato de agentPlans é 'plans("plano1 plano2 ...")'.
+            // Extraímos o conteúdo de dentro das aspas e formatamos como uma lista.
             String plansContent = agentPlans.substring(agentPlans.indexOf('"') + 1, agentPlans.lastIndexOf('"'));
 
             logger.debug("Formatted plans received from agent being sent to AI: \n{}", plansContent);

@@ -14,6 +14,7 @@ public class WebSocketSessionState {
     private ContextNetClient contextNetClient;
     private AIService aiService;
     private final AtomicBoolean isInitialized = new AtomicBoolean(false);
+    private final AtomicBoolean isInitializing = new AtomicBoolean(false);
 
     public ContextNetClient getContextNetClient() {
         return contextNetClient;
@@ -37,5 +38,13 @@ public class WebSocketSessionState {
 
     public void setInitialized(boolean initialized) {
         isInitialized.set(initialized);
+    }
+
+    public boolean isInitializing() {
+        return isInitializing.get();
+    }
+
+    public void setInitializing(boolean initializing) {
+        isInitializing.set(initializing);
     }
 }

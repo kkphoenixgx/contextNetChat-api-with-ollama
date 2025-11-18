@@ -52,8 +52,14 @@ public class ContextNetWebSocketController extends TextWebSocketHandler {
         WebSocketSessionState state = sessions.get(sessionId);
         
         try {
-            if (state != null && !state.isInitialized()) {
+            if (state == null) {
+                throw new IllegalStateException("Session state not found.");
+            }
+
+            // Se a sessão não foi inicializada e não está em processo de inicialização, trata como a primeira mensagem.
+            if (!state.isInitialized() && !state.isInitializing()) {
                 handleFirstMessage(session, payload);
+            // Se já foi inicializada, trata como mensagem subsequente.
             } else {
                 handleSubsequentMessages(session, payload);
             }
@@ -69,6 +75,9 @@ public class ContextNetWebSocketController extends TextWebSocketHandler {
         String sessionId = session.getId();
         logger.info("[{}] Handling first message. Payload: {}", sessionId, payload);
         WebSocketSessionState state = sessions.get(sessionId);
+
+        // Marca que a inicialização começou para bloquear outras mensagens.
+        state.setInitializing(true);
 
         ContextNetConfig config = objectMapper.readValue(payload, ContextNetConfig.class);
         logger.debug("[{}] Parsed ContextNetConfig: MyUUID={}, DestinationUUID={}", sessionId, config.myUUID, config.destinationUUID);
@@ -91,11 +100,13 @@ public class ContextNetWebSocketController extends TextWebSocketHandler {
                     logger.info("[{}] Initializing AI Service...", sessionId);
                     AIService aiService = new AIService(this.modelManagaer, sessionId, agentPlans);
                     state.setAiService(aiService);
+                    state.setInitializing(false); // Libera o bloqueio de inicialização.
                     state.setInitialized(true); // Marca a sessão como totalmente inicializada.
                     logger.info("[{}] AI Service initialized and stored.", sessionId);
         
                     sendToSession(session, "Connection stabilized and IA session ready.");
                 } catch (Exception e) {
+                    state.setInitializing(false); // Garante a liberação do bloqueio em caso de erro.
 
                     logger.error("[{}] Failed to initialize AI service after getting plans.", sessionId, e);
                     sendToSession(session, "Error: AI model initialization failed. " + e.getMessage());
@@ -103,6 +114,7 @@ public class ContextNetWebSocketController extends TextWebSocketHandler {
                 }
             })
             .exceptionally(ex -> {   
+                state.setInitializing(false); // Libera o bloqueio em caso de erro.
                 logger.error("[{}] Failed to get plans from agent. Reason: {}", sessionId, ex.getMessage(), ex);
                 sendToSession(session, "Error: Could not get plans from agent. The agent did not respond.");
                 
@@ -115,7 +127,7 @@ public class ContextNetWebSocketController extends TextWebSocketHandler {
         String sessionId = session.getId();
         WebSocketSessionState state = sessions.get(sessionId);
 
-        if (state == null || !state.isInitialized()) {
+        if (state == null || !state.isInitialized() || state.isInitializing()) {
              throw new IllegalStateException("Session is not ready or has been closed. Please wait for 'Connection stabilized' message.");
         }
         AIService aiService = state.getAiService();
@@ -148,8 +160,11 @@ public class ContextNetWebSocketController extends TextWebSocketHandler {
 
     /** Sends a string message to a specific WebSocket session if it is open. */
     private void sendToSession(WebSocketSession session, String msg) {
-        try {
-            if (session.isOpen())  session.sendMessage(new TextMessage(msg));
+        try { 
+            // Sincroniza o acesso à sessão para evitar que múltiplas threads escrevam ao mesmo tempo.
+            synchronized (session) {
+                if (session.isOpen())  session.sendMessage(new TextMessage(msg));
+            }
         } 
         catch (Exception e) {
             logger.error("Failed to send message to session {}", session.getId(), e);
