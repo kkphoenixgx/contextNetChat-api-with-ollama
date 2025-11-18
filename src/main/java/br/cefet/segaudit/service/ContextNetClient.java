@@ -4,11 +4,13 @@ import lac.cnclib.net.NodeConnection;
 import lac.cnclib.net.NodeConnectionListener;
 import lac.cnclib.sddl.message.Message;
 
+import java.util.Map;
 import java.util.Queue;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 
 import org.slf4j.Logger;
@@ -26,7 +28,8 @@ public class ContextNetClient implements NodeConnectionListener {
     private Consumer<String> messageHandler;
     private final Queue<String> messageQueue = new ConcurrentLinkedQueue<>();
     private volatile boolean isConnected = false;
-    private final AtomicReference<CompletableFuture<String>> initialPlanFuture = new AtomicReference<>();
+    private final Map<String, CompletableFuture<String>> pendingRequests = new ConcurrentHashMap<>();
+    private final AtomicLong messageIdCounter = new AtomicLong(0);
 
     public ContextNetClient(ContextNetConfig config, Consumer<String> messageHandler) {
         this.gatewayIP = config.gatewayIP;
@@ -44,12 +47,28 @@ public class ContextNetClient implements NodeConnectionListener {
 
     private void handleIncomingMessage(String message) {
         logger.debug("Received from ContextNet: {}", message);
-        CompletableFuture<String> future = initialPlanFuture.get();
-        // Se estivermos esperando pela resposta dos planos, complete o Future.
-        if (future != null && !future.isDone()) {
-            initialPlanFuture.set(null); // Consome o future
-            future.complete(message);
+
+        // Tenta identificar se esta é uma resposta a uma requisição pendente.
+        if (message.startsWith("<")) {
+            String[] messageParts = message.substring(1, message.length() - 1).split(",");
+            if (messageParts.length > 0 && messageParts[0].contains("->")) {
+                String originalRequestId = messageParts[0].substring(messageParts[0].indexOf("->") + 2);
+
+                // Se encontramos um ID e temos um Future pendente para ele, completamos o Future.
+                if (pendingRequests.containsKey(originalRequestId)) {
+                    CompletableFuture<String> future = pendingRequests.remove(originalRequestId);
+                    if (future != null && !future.isDone()) {
+                        // Extrai o conteúdo da mensagem, que é o último elemento.
+                        logger.info("Resposta do agente para a requisição '{}' recebida: {}", originalRequestId, message);
+                        String content = messageParts[messageParts.length - 1];
+                        logger.info("Completing future for request '{}' with content: {}", originalRequestId, content);
+                        future.complete(content.trim());
+                    }
+                }
+            }
         }
+
+        // Independentemente de ser uma resposta ou não, repassamos a mensagem para o cliente WebSocket.
         if (messageHandler != null) {
             messageHandler.accept(message);
         }
@@ -61,17 +80,34 @@ public class ContextNetClient implements NodeConnectionListener {
 
     public CompletableFuture<String> fetchAgentPlans() {
         CompletableFuture<String> future = new CompletableFuture<>();
-        initialPlanFuture.set(future);
-        sendToContextNet("(achieve :content (getPlans))");
+        String messageId = "mid" + messageIdCounter.incrementAndGet();
+
+        pendingRequests.put(messageId, future);
+
+        String getPlansCommand = String.format("<%s,%s,askOne,%s,plans(N)>", messageId, myUUID, destinationUUID);
+
+        logger.info("Requesting agent plans with command: {}", getPlansCommand);
+        sendToContextNet(getPlansCommand);
 
         return future;
     }
 
+    public UUID getDestinationUUID() {
+        return destinationUUID;
+    }
+
     public void sendToContextNet(String message) {
-        if (message.startsWith("\"") && message.endsWith("\"")) {
-            message = message.substring(1, message.length() - 1);
+        String formattedMessage;
+        // Se a mensagem já estiver no formato <...>, use-a como está (para o fetchPlans).
+        // Caso contrário, formate-a como uma nova mensagem para o agente.
+        if (message.trim().startsWith("<")) {
+            formattedMessage = message;
+        } else {
+            // Formata a mensagem KQML no padrão que o Concierge espera.
+            String messageId = "mid" + messageIdCounter.incrementAndGet();
+            formattedMessage = String.format("<%s,%s,%s>", messageId, myUUID, message);
         }
-        enqueueMessage(message);
+        enqueueMessage(formattedMessage);
     }
 
     private void enqueueMessage(String message) {

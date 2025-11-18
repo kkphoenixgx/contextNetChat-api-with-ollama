@@ -17,6 +17,7 @@
 			"developer2006.svg-gallery",
 			"eliostruyf.vscode-hide-comments",
 			"kdcro101.favorites",
+			"rangav.vscode-thunder-client",
 
 			// theme:
 			"tinaciousdesign.theme-tinaciousdesign",
@@ -26,7 +27,7 @@
 			"vscjava.vscode-java-debug",
 			"vscjava.vscode-maven",
 			"vscjava.vscode-java-dependency",
-			"vmware.vscode-boot-dev-pack",
+			"vmware.vscode-boot-dev-pack"
 		]
 	},
 

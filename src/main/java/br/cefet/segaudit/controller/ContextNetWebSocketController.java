@@ -1,6 +1,7 @@
 package br.cefet.segaudit.controller;
 
 import br.cefet.segaudit.model.interfaces.IModelManagaer;
+import br.cefet.segaudit.model.classes.WebSocketSessionState;
 import br.cefet.segaudit.model.classes.ContextNetConfig;
 import br.cefet.segaudit.model.factories.ContextNetClientFactory;
 import br.cefet.segaudit.service.AIService;
@@ -24,8 +25,7 @@ public class ContextNetWebSocketController extends TextWebSocketHandler {
 
     private final ContextNetClientFactory contextNetClientFactory;
 
-    private final Map<String, ContextNetClient> clients = new ConcurrentHashMap<>();
-    private final Map<String, AIService> aiServices = new ConcurrentHashMap<>();
+    private final Map<String, WebSocketSessionState> sessions = new ConcurrentHashMap<>();
     private final IModelManagaer modelManagaer;
     private final ObjectMapper objectMapper;
 
@@ -41,6 +41,7 @@ public class ContextNetWebSocketController extends TextWebSocketHandler {
     @Override
     public void afterConnectionEstablished(WebSocketSession session) {
         logger.info("WebSocket session opened: {}", session.getId());
+        sessions.put(session.getId(), new WebSocketSessionState());
     }
 
     /** Handles incoming text messages, routing them to initialize the session or process subsequent commands. */
@@ -48,12 +49,12 @@ public class ContextNetWebSocketController extends TextWebSocketHandler {
     protected void handleTextMessage(WebSocketSession session, TextMessage message) {
         String payload = message.getPayload();
         String sessionId = session.getId();
+        WebSocketSessionState state = sessions.get(sessionId);
         
         try {
-            if (!clients.containsKey(sessionId)) { // First message
+            if (state != null && !state.isInitialized()) {
                 handleFirstMessage(session, payload);
-            } 
-            else {
+            } else {
                 handleSubsequentMessages(session, payload);
             }
         } catch (Exception e) {
@@ -66,41 +67,71 @@ public class ContextNetWebSocketController extends TextWebSocketHandler {
     //?First Message is a JSON with connection configs*/
     private void handleFirstMessage(WebSocketSession session, String payload) throws Exception {
         String sessionId = session.getId();
+        logger.info("[{}] Handling first message. Payload: {}", sessionId, payload);
+        WebSocketSessionState state = sessions.get(sessionId);
+
         ContextNetConfig config = objectMapper.readValue(payload, ContextNetConfig.class);
+        logger.debug("[{}] Parsed ContextNetConfig: MyUUID={}, DestinationUUID={}", sessionId, config.myUUID, config.destinationUUID);
 
         ContextNetClient client = contextNetClientFactory.create(config, (msg) -> {
             sendToSession(session, msg);
         });
-        clients.put(sessionId, client);
-
-        //? Handling agent context
+        state.setContextNetClient(client);
+        logger.info("[{}] ContextNetClient created and stored.", sessionId);
+        
+        //? Busca os planos do agente de forma assíncrona.
+        logger.info("[{}] Fetching agent plans from ContextNet...", sessionId);
         client.fetchAgentPlans()
-          .thenAccept(agentPlans -> {
-            logger.info("Received plans {}: {}", sessionId, agentPlans);
+            .thenAccept(agentPlans -> {
 
-            AIService aiService = new AIService(this.modelManagaer, sessionId, agentPlans);
-            aiServices.put(sessionId, aiService);
+                logger.info("[{}] Successfully received plans from agent: {}", sessionId, agentPlans);
+                logger.info("[{}] Contexto do agente recuperado com sucesso.", sessionId);
+    
+                try {
+                    logger.info("[{}] Initializing AI Service...", sessionId);
+                    AIService aiService = new AIService(this.modelManagaer, sessionId, agentPlans);
+                    state.setAiService(aiService);
+                    state.setInitialized(true); // Marca a sessão como totalmente inicializada.
+                    logger.info("[{}] AI Service initialized and stored.", sessionId);
+        
+                    sendToSession(session, "Connection stabilized and IA session ready.");
+                } catch (Exception e) {
+
+                    logger.error("[{}] Failed to initialize AI service after getting plans.", sessionId, e);
+                    sendToSession(session, "Error: AI model initialization failed. " + e.getMessage());
                 
-            sendToSession(session, "Connection stabilized and IA session ready.");
-          })
-          .exceptionally(ex -> {
-            logger.error("getPlans falied{}", sessionId, ex);
-            sendToSession(session, "Error: Could not get plans from agent.");
-            return null;
-          });
-
+                }
+            })
+            .exceptionally(ex -> {   
+                logger.error("[{}] Failed to get plans from agent. Reason: {}", sessionId, ex.getMessage(), ex);
+                sendToSession(session, "Error: Could not get plans from agent. The agent did not respond.");
+                
+                return null;
+            });
     }
 
     /** Handles all messages after the initial setup, translating user input into KQML commands and sending them to the ContextNet. */
     private void handleSubsequentMessages(WebSocketSession session, String payload) {
         String sessionId = session.getId();
-        ContextNetClient contextNetClient = this.clients.get(sessionId);
-        AIService aiService = this.aiServices.get(sessionId);
+        WebSocketSessionState state = sessions.get(sessionId);
+
+        if (state == null || !state.isInitialized()) {
+             throw new IllegalStateException("Session is not ready or has been closed. Please wait for 'Connection stabilized' message.");
+        }
+        AIService aiService = state.getAiService();
+
+        logger.info("[{}] Handling subsequent message: {}", sessionId, payload);
 
         List<String> kqmlMessages = aiService.getKQMLMessages(sessionId, payload);
+        logger.info("[{}] AI translated message to {} KQML command(s): {}", sessionId, kqmlMessages.size(), kqmlMessages);
+
+        ContextNetClient client = state.getContextNetClient();
 
         for (String kqmlMessage : kqmlMessages) {
-            contextNetClient.sendToContextNet(kqmlMessage);
+            // Monta a mensagem KQML completa: performativo, destinatário, conteúdo
+            String fullKqmlMessage = String.format("achieve,%s,%s", client.getDestinationUUID(), kqmlMessage);
+            client.sendToContextNet(fullKqmlMessage);
+            logger.debug("[{}] Sent to ContextNet: {}", sessionId, fullKqmlMessage);
         }
     }
 
@@ -108,8 +139,7 @@ public class ContextNetWebSocketController extends TextWebSocketHandler {
     @Override
     public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {
         String sessionId = session.getId();
-        clients.remove(sessionId);
-        aiServices.remove(sessionId);
+        sessions.remove(sessionId);
         modelManagaer.endSession(sessionId);
         logger.info("WebSocket and AI sessions closed for id: {}", sessionId);
     }
