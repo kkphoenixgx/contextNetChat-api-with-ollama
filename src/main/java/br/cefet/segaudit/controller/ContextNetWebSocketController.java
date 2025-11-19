@@ -139,11 +139,22 @@ public class ContextNetWebSocketController extends TextWebSocketHandler {
 
         ContextNetClient client = state.getContextNetClient();
 
-        for (String kqmlMessage : kqmlMessages) {
-            // Monta a mensagem KQML completa: performativo, destinatário, conteúdo
+        // Envia os comandos com um atraso para evitar condição de corrida no agente.
+        for (int i = 0; i < kqmlMessages.size(); i++) {
+            String kqmlMessage = kqmlMessages.get(i);
             String fullKqmlMessage = String.format("achieve,%s,%s", client.getDestinationUUID(), kqmlMessage);
             client.sendToContextNet(fullKqmlMessage);
             logger.debug("[{}] Sent to ContextNet: {}", sessionId, fullKqmlMessage);
+
+            // Adiciona um atraso de 1 segundo, exceto após o último comando.
+            if (i < kqmlMessages.size() - 1) {
+                try {
+                    Thread.sleep(1000);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    logger.error("Thread interrupted while waiting to send next command", e);
+                }
+            }
         }
     }
 

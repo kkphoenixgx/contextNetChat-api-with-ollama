@@ -101,3 +101,7 @@ Este fluxo ocorre para cada mensagem que o cliente envia após a inicialização
 5.  **Envio para o Agente**:
     *   O fluxo retorna para o `ContextNetWebSocketController`, que itera sobre a lista de comandos.
     *   Para cada comando, **`ContextNetClient.sendToContextNet`** é chamado, enviando a mensagem pela conexão UDP para o agente final executar a ação.
+
+## TODO
+
+- [ ] Quando não tem plans disponível, exemplo: O agente não tá rodando 

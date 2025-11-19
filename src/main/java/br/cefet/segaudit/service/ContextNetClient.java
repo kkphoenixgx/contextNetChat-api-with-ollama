@@ -50,19 +50,28 @@ public class ContextNetClient implements NodeConnectionListener {
 
         // Tenta identificar se esta é uma resposta a uma requisição pendente.
         if (message.startsWith("<")) {
-            String[] messageParts = message.substring(1, message.length() - 1).split(",");
-            if (messageParts.length > 0 && messageParts[0].contains("->")) {
-                String originalRequestId = messageParts[0].substring(messageParts[0].indexOf("->") + 2);
+            String innerMessage = message.substring(1, message.length() - 1);
+            int firstComma = innerMessage.indexOf(',');
 
-                // Se encontramos um ID e temos um Future pendente para ele, completamos o Future.
-                if (pendingRequests.containsKey(originalRequestId)) {
-                    CompletableFuture<String> future = pendingRequests.remove(originalRequestId);
-                    if (future != null && !future.isDone()) {
-                        // Extrai o conteúdo da mensagem, que é o último elemento.
-                        logger.info("Resposta do agente para a requisição '{}' recebida: {}", originalRequestId, message);
-                        String content = messageParts[messageParts.length - 1];
-                        logger.info("Completing future for request '{}' with content: {}", originalRequestId, content);
-                        future.complete(content.trim());
+            if (firstComma != -1) {
+                String header = innerMessage.substring(0, firstComma);
+                if (header.contains("->")) {
+                    String originalRequestId = header.substring(header.indexOf("->") + 2);
+
+                    if (pendingRequests.containsKey(originalRequestId)) {
+                        CompletableFuture<String> future = pendingRequests.remove(originalRequestId);
+                        if (future != null && !future.isDone()) {
+                            // Lógica robusta para encontrar o conteúdo, que é a última parte da mensagem.
+                            // Ex: <mid,sender,performative,receiver,CONTENT>
+                            // O conteúdo começa após a 4ª vírgula.
+                            int contentStartIndex = findNthOccurrence(innerMessage, ',', 4);
+                            if (contentStartIndex == -1) {
+                                throw new IllegalStateException("Invalid KQML message format received from agent: " + message);
+                            }
+                            String content = innerMessage.substring(contentStartIndex + 1);
+                            logger.info("Completing future for request '{}' with content: {}", originalRequestId, content);
+                            future.complete(content.trim());
+                        }
                     }
                 }
             }
@@ -73,6 +82,19 @@ public class ContextNetClient implements NodeConnectionListener {
             messageHandler.accept(message);
         }
     }
+
+    // Helper para encontrar a n-ésima ocorrência de um caractere.
+    private int findNthOccurrence(String str, char c, int n) {
+        int pos = -1;
+        for (int i = 0; i < n; i++) {
+            pos = str.indexOf(c, pos + 1);
+            if (pos == -1) {
+                break;
+            }
+        }
+        return pos;
+    }
+
 
     public void setMessageHandler(Consumer<String> handler) {
         this.messageHandler = handler;

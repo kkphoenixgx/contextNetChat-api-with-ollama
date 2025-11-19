@@ -1,8 +1,7 @@
 teletelaUUID("b135dd8a-23e5-4b3e-9405-288c40b7fac3").
 humanUUID("b2fc3586-245f-4c28-b1ed-56d8e7936a49").
 
-plans("takeoff up down land right forward left backward turnOff").
-
+plans("/**@Description Apenas tira o embarcado do chão tornando-o disponível para próximos comandos*/ takeOff /**@Description Se o drone não estiver voando, executa um takeOff interno e depois sobe o drone em X unidades e se já estiver voando, sobe o drone em X unidades*/ up(X) /**@Description desce o drone em X unidades*/ down(X) /**@Description pousa o drone*/ land /**@Description Comanda o drone para a direita em X unidades*/ right(X) /**@Description Controla o drone para frente em X unidades*/forward(X)  /**@Description Comanda o drone para a esquerda em X unidades*/left(X)/**@Description controla o drone em X unidades*/ backward(X)  /**@Description desliga o drone*/turnOff").
 commandId(0).
 currentLimit(0).
 
