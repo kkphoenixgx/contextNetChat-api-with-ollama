@@ -48,7 +48,6 @@ public class ContextNetClient implements NodeConnectionListener {
     private void handleIncomingMessage(String message) {
         logger.debug("Received from ContextNet: {}", message);
 
-        // Tenta identificar se esta é uma resposta a uma requisição pendente.
         if (message.startsWith("<")) {
             String innerMessage = message.substring(1, message.length() - 1);
             int firstComma = innerMessage.indexOf(',');
@@ -61,14 +60,14 @@ public class ContextNetClient implements NodeConnectionListener {
                     if (pendingRequests.containsKey(originalRequestId)) {
                         CompletableFuture<String> future = pendingRequests.remove(originalRequestId);
                         if (future != null && !future.isDone()) {
-                            // Lógica robusta para encontrar o conteúdo, que é a última parte da mensagem.
-                            // Ex: <mid,sender,performative,receiver,CONTENT>
-                            // O conteúdo começa após a 4ª vírgula.
+
                             int contentStartIndex = findNthOccurrence(innerMessage, ',', 4);
                             if (contentStartIndex == -1) {
                                 throw new IllegalStateException("Invalid KQML message format received from agent: " + message);
                             }
+
                             String content = innerMessage.substring(contentStartIndex + 1);
+                            
                             logger.info("Completing future for request '{}' with content: {}", originalRequestId, content);
                             future.complete(content.trim());
                         }
@@ -77,13 +76,11 @@ public class ContextNetClient implements NodeConnectionListener {
             }
         }
 
-        // Independentemente de ser uma resposta ou não, repassamos a mensagem para o cliente WebSocket.
         if (messageHandler != null) {
             messageHandler.accept(message);
         }
     }
 
-    // Helper para encontrar a n-ésima ocorrência de um caractere.
     private int findNthOccurrence(String str, char c, int n) {
         int pos = -1;
         for (int i = 0; i < n; i++) {
@@ -120,12 +117,10 @@ public class ContextNetClient implements NodeConnectionListener {
 
     public void sendToContextNet(String message) {
         String formattedMessage;
-        // Se a mensagem já estiver no formato <...>, use-a como está (para o fetchPlans).
-        // Caso contrário, formate-a como uma nova mensagem para o agente.
+        
         if (message.trim().startsWith("<")) {
             formattedMessage = message;
         } else {
-            // Formata a mensagem KQML no padrão que o Concierge espera.
             String messageId = "mid" + messageIdCounter.incrementAndGet();
             formattedMessage = String.format("<%s,%s,%s>", messageId, myUUID, message);
         }

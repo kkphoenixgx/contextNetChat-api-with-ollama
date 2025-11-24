@@ -100,8 +100,11 @@ Este fluxo ocorre para cada mensagem que o cliente envia após a inicialização
 
 5.  **Envio para o Agente**:
     *   O fluxo retorna para o `ContextNetWebSocketController`, que itera sobre a lista de comandos.
+    * Resposta da IA: O modelo de IA retorna uma única string contendo todos os comandos necessários, com cada comando separado por uma de linha (\n), conforme instruído no prompt de contexto gemma3Context.txt.
     *   Para cada comando, **`ContextNetClient.sendToContextNet`** é chamado, enviando a mensagem pela conexão UDP para o agente final executar a ação.
 
 ## TODO
 
-- [ ] Quando não tem plans disponível, exemplo: O agente não tá rodando 
+- [ ] Quando não tem plans disponível, exemplo: O agente não tá 
+- [ ] Testes melhores, com vários exemplos de teste que são enviados de uma vez e esperam um resultado
+- [ ] Testes melhores, testes individuais de dificuldades diferentes

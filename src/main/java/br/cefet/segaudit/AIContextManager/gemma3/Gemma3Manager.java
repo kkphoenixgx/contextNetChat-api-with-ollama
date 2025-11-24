@@ -124,28 +124,28 @@ public class Gemma3Manager implements IModelManagaer {
             .timeout(Duration.ofMinutes(10)) // Timeout para a resposta completa (aumentado para 10 minutos)
             .build();
 
-        // Executa a requisição de forma assíncrona para não bloquear o spinner
-        CompletableFuture<HttpResponse<String>> future = CompletableFuture.supplyAsync(() -> {
-            try {
-                return client.send(request, HttpResponse.BodyHandlers.ofString());
-            } catch (IOException | InterruptedException e) {
-                throw new CompletionException(e);
+            CompletableFuture<HttpResponse<String>> future = CompletableFuture.supplyAsync(() -> {
+                try {
+                    return client.send(request, HttpResponse.BodyHandlers.ofString());
+                } catch (IOException | InterruptedException e) {
+                    throw new CompletionException(e);
+                }
             }
-        });
+        );
 
-        // Exibe um spinner de carregamento no console enquanto espera a resposta
+        
         System.out.print("Aguardando resposta do modelo Ollama...  ");
         char[] spinner = {'|', '/', '-', '\\'};
         int i = 0;
         while (!future.isDone()) {
-            System.out.print("\b" + spinner[i % spinner.length]); // \b é um backspace para animar no mesmo lugar
-            Thread.sleep(250); // Controla a velocidade do spinner
+            System.out.print("\b" + spinner[i % spinner.length]);
+            Thread.sleep(250);
             i++;
         }
         System.out.println("\b. Resposta recebida!");
 
         try {
-            HttpResponse<String> httpResponse = future.get(); // Obtém o resultado (ou a exceção)
+            HttpResponse<String> httpResponse = future.get();
 
             if (httpResponse.statusCode() >= 200 && httpResponse.statusCode() < 300) {
                 return objectMapper.readValue(httpResponse.body(), IAGenerateResponse.class);
@@ -154,7 +154,6 @@ public class Gemma3Manager implements IModelManagaer {
                 throw new IOException("Request to Ollama API failed with status code " + httpResponse.statusCode());
             }
         } catch (ExecutionException e) {
-            // Desembrulha a exceção original que ocorreu dentro do CompletableFuture
             Throwable cause = e.getCause();
             logger.error("Error executing async Ollama request", cause);
             throw new IOException("Falha na execução da requisição para o Ollama.", cause);
