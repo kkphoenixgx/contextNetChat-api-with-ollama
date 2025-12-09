@@ -39,12 +39,6 @@ contextnetchat-api/
 └── pom.xml                           # Arquivo de configuração do Maven
 ```
 
-## To-Do List
-
-- [x] Assim que a conexão com a web socket morrer, precisa fechar a conexão com o modelo (Manager).
-    - *Implementado no método `afterConnectionClosed` do `ContextNetWebSocketController`.*
-
----
 
 ## Fluxo de Execução
 
@@ -106,5 +100,4 @@ Este fluxo ocorre para cada mensagem que o cliente envia após a inicialização
 ## TODO
 
 - [ ] Quando não tem plans disponível, exemplo: O agente não tá 
-- [ ] Testes melhores, com vários exemplos de teste que são enviados de uma vez e esperam um resultado
-- [ ] Testes melhores, testes individuais de dificuldades diferentes
+- [ ] Testes melhores, com vários exemplos de teste que são enviados de uma vez e esperam um resultado, testes individuais de dificuldades diferentes

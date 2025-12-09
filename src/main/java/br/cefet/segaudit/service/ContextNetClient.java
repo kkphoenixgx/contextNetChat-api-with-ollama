@@ -4,13 +4,18 @@ import lac.cnclib.net.NodeConnection;
 import lac.cnclib.net.NodeConnectionListener;
 import lac.cnclib.sddl.message.Message;
 
+import java.io.IOException;
 import java.util.Map;
 import java.util.Queue;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
 import org.slf4j.Logger;
@@ -30,8 +35,10 @@ public class ContextNetClient implements NodeConnectionListener {
     private volatile boolean isConnected = false;
     private final Map<String, CompletableFuture<String>> pendingRequests = new ConcurrentHashMap<>();
     private final AtomicLong messageIdCounter = new AtomicLong(0);
+    private final CompletableFuture<Void> connectionFuture = new CompletableFuture<>();
+    private ScheduledFuture<?> timeoutTask;
 
-    public ContextNetClient(ContextNetConfig config, Consumer<String> messageHandler) {
+    public ContextNetClient(ContextNetConfig config, Consumer<String> messageHandler, ExecutorService executor, ScheduledExecutorService scheduler) {
         this.gatewayIP = config.gatewayIP;
         this.gatewayPort = config.gatewayPort;
         this.myUUID = config.myUUID;
@@ -41,8 +48,23 @@ public class ContextNetClient implements NodeConnectionListener {
         logger.info("Connecting to ContextNet gateway at {}:{}", gatewayIP, gatewayPort);
         logger.info("Session UUID: {}, Destination UUID: {}", myUUID, destinationUUID);
 
-        this.sender = new Sender(gatewayIP, gatewayPort, myUUID, destinationUUID, this::handleIncomingMessage);
-        this.sender.setConnectionListener(this);
+        // Inicia a conexão em uma thread dedicada.
+        CompletableFuture.runAsync(() -> {
+            this.sender = new Sender(gatewayIP, gatewayPort, myUUID, destinationUUID, this::handleIncomingMessage);
+            this.sender.setConnectionListener(this); // O Sender irá notificar o ContextNetClient sobre eventos de conexão.
+        }, executor);
+
+        // Agenda uma verificação de timeout para garantir que a conexão não fique travada.
+        this.timeoutTask = scheduler.schedule(() -> {
+            if (!connectionFuture.isDone()) {
+                connectionFuture.completeExceptionally(new java.util.concurrent.TimeoutException("ContextNet connection attempt timed out after 30 seconds."));
+            }
+        }, 30, TimeUnit.SECONDS);
+    }
+
+    /** Returns a CompletableFuture that completes when the connection is established or fails. */
+    public CompletableFuture<Void> getConnectionFuture() {
+        return connectionFuture;
     }
 
     private void handleIncomingMessage(String message) {
@@ -111,6 +133,24 @@ public class ContextNetClient implements NodeConnectionListener {
         return future;
     }
 
+    /** Cancels all pending CompletableFuture requests. */
+    public void cancelPendingRequests() {
+        int count = pendingRequests.size();
+        if (count > 0) {
+            logger.warn("Cancelling {} pending request(s) for session UUID {}", count, myUUID);
+            pendingRequests.values().forEach(future -> future.cancel(true));
+            pendingRequests.clear();
+        }
+    }
+
+    /** Cancels the scheduled connection timeout task. */
+    public void cancelConnectionTimeout() {
+        if (this.timeoutTask != null && !this.timeoutTask.isDone()) {
+            this.timeoutTask.cancel(false);
+            logger.debug("Connection timeout task cancelled for session UUID {}", myUUID);
+        }
+    }
+
     public UUID getDestinationUUID() {
         return destinationUUID;
     }
@@ -141,6 +181,8 @@ public class ContextNetClient implements NodeConnectionListener {
     public void connected(NodeConnection remoteCon) {
         logger.info("UDP connection established with ContextNet.");
         isConnected = true;
+        cancelConnectionTimeout(); // Cancela o timeout, pois a conexão foi bem-sucedida.
+        connectionFuture.complete(null); // Notifica que a conexão foi bem-sucedida.
 
         while (!messageQueue.isEmpty()) {
             String msg = messageQueue.poll();
@@ -164,6 +206,9 @@ public class ContextNetClient implements NodeConnectionListener {
     public void disconnected(NodeConnection remoteCon) {
         logger.warn("Disconnected from ContextNet.");
         isConnected = false;
+        cancelConnectionTimeout();
+        connectionFuture.completeExceptionally(new IOException("Disconnected from ContextNet."));
+        cancelPendingRequests();
     }
 
     @Override
@@ -174,5 +219,7 @@ public class ContextNetClient implements NodeConnectionListener {
     @Override
     public void internalException(NodeConnection remoteCon, Exception e) {
         logger.error("Internal exception in ContextNet connection.", e);
+        cancelConnectionTimeout();
+        connectionFuture.completeExceptionally(e); // Notifica que a conexão falhou.
     }
 }

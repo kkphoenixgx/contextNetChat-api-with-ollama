@@ -1,14 +1,27 @@
 package br.cefet.segaudit.model.classes;
 
-public record IAGenerateRequest(String model, String prompt, long[] context, boolean stream) {
+import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.annotation.JsonProperty;
 
-    public IAGenerateRequest(String model, String prompt) {
-        this(model, prompt, null, false);
+/**
+ * Represents the JSON request body sent to the Ollama /api/generate endpoint.
+ * It includes the model name, prompt, and optional parameters like context and options.
+ */
+@JsonInclude(JsonInclude.Include.NON_NULL)
+public record IAGenerateRequest(
+    String model,
+    String prompt,
+    long[] context,
+    OllamaOptions options,
+    @JsonProperty("stream") boolean stream
+) {
+    // Constructor for subsequent messages (with context)
+    public IAGenerateRequest(String model, String prompt, long[] context, OllamaOptions options) {
+        this(model, prompt, context, options, false);
     }
 
-
-    public IAGenerateRequest(String model, String prompt, long[] context) {
-        this(model, prompt, context, false);
+    // Constructor for the initial message (without context)
+    public IAGenerateRequest(String model, String prompt, OllamaOptions options) {
+        this(model, prompt, null, options, false);
     }
-
 }

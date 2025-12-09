@@ -15,6 +15,7 @@ public class WebSocketSessionState {
     private AIService aiService;
     private final AtomicBoolean isInitialized = new AtomicBoolean(false);
     private final AtomicBoolean isInitializing = new AtomicBoolean(false);
+    private final AtomicBoolean isProcessingMessage = new AtomicBoolean(false);
 
     public ContextNetClient getContextNetClient() {
         return contextNetClient;
@@ -46,5 +47,20 @@ public class WebSocketSessionState {
 
     public void setInitializing(boolean initializing) {
         isInitializing.set(initializing);
+    }
+
+    /**
+     * Tenta marcar a sessão como "processando uma mensagem".
+     * @return {@code true} se o bloqueio foi adquirido com sucesso, {@code false} caso contrário.
+     */
+    public boolean tryStartProcessing() {
+        return isProcessingMessage.compareAndSet(false, true);
+    }
+
+    /**
+     * Marca a sessão como "não mais processando uma mensagem".
+     */
+    public void finishProcessing() {
+        isProcessingMessage.set(false);
     }
 }

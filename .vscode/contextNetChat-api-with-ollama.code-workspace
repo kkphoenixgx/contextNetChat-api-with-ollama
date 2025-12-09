@@ -27,7 +27,8 @@
 			"vscjava.vscode-java-debug",
 			"vscjava.vscode-maven",
 			"vscjava.vscode-java-dependency",
-			"vmware.vscode-boot-dev-pack"
+			"vmware.vscode-boot-dev-pack",
+			"EchoAPI.echoapi-for-vscode"
 		]
 	},
 

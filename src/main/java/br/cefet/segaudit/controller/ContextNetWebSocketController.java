@@ -10,6 +10,7 @@ import br.cefet.segaudit.service.ContextNetClient;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -28,12 +29,14 @@ public class ContextNetWebSocketController extends TextWebSocketHandler {
     private final Map<String, WebSocketSessionState> sessions = new ConcurrentHashMap<>();
     private final IModelManagaer modelManagaer;
     private final ObjectMapper objectMapper;
+    private final ExecutorService contextNetExecutor;
 
     /** Initializes the controller with required factories and managers for handling WebSocket connections. */
-    public ContextNetWebSocketController(ContextNetClientFactory factory, IModelManagaer modelManagaer, ObjectMapper objectMapper) {
+    public ContextNetWebSocketController(ContextNetClientFactory factory, IModelManagaer modelManagaer, ObjectMapper objectMapper, ExecutorService contextNetExecutor) {
         this.contextNetClientFactory = factory;
         this.modelManagaer = modelManagaer;
         this.objectMapper = objectMapper;
+        this.contextNetExecutor = contextNetExecutor;
     }
 
     //? ----------- Methods -----------
@@ -80,6 +83,13 @@ public class ContextNetWebSocketController extends TextWebSocketHandler {
         state.setInitializing(true);
 
         ContextNetConfig config = objectMapper.readValue(payload, ContextNetConfig.class);
+
+        if (config.gatewayIP == null || config.myUUID == null || config.destinationUUID == null) {
+            logger.error("[{}] Invalid configuration received. Closing session.", sessionId);
+            sendToSession(session, "Error: Invalid configuration. 'gatewayIP', 'agentUUID', and 'destinationUUID' are required.");
+            session.close();
+            return;
+        }
         logger.debug("[{}] Parsed ContextNetConfig: MyUUID={}, DestinationUUID={}", sessionId, config.myUUID, config.destinationUUID);
 
         ContextNetClient client = contextNetClientFactory.create(config, (msg) -> {
@@ -88,38 +98,49 @@ public class ContextNetWebSocketController extends TextWebSocketHandler {
         state.setContextNetClient(client);
         logger.info("[{}] ContextNetClient created and stored.", sessionId);
         
-        //? Busca os planos do agente de forma assíncrona.
-        logger.info("[{}] Fetching agent plans from ContextNet...", sessionId);
-        client.fetchAgentPlans()
-            .thenAccept(agentPlans -> {
+        // Aguarda a conexão ser estabelecida antes de prosseguir.
+        client.getConnectionFuture().thenCompose(v -> {
+            logger.info("[{}] Connection to ContextNet established. Fetching agent plans...", sessionId);
+            //? Busca os planos do agente de forma assíncrona.
+            return client.fetchAgentPlans().orTimeout(120, java.util.concurrent.TimeUnit.SECONDS); // Adiciona um timeout de 2m
+        }).thenCompose(agentPlans -> {
+            logger.info("[{}] Successfully received plans from agent: {}", sessionId, agentPlans);
+            logger.info("[{}] Contexto do agente recuperado com sucesso.", sessionId);
+            logger.info("[{}] Initializing AI Service...", sessionId);
+            AIService aiService = new AIService(this.modelManagaer, sessionId, contextNetExecutor);
+            state.setAiService(aiService);
+            return aiService.initialize(agentPlans);
+        }).thenAccept(v -> {
+            state.setInitializing(false); // Libera o bloqueio de inicialização.
+            state.setInitialized(true); // Marca a sessão como totalmente inicializada.
+            logger.info("[{}] AI Service initialized and stored.", sessionId);
+            sendToSession(session, "Connection stabilized and IA session ready.");
+        }).exceptionally(ex -> {
+            state.setInitializing(false); // Libera o bloqueio em caso de erro.
+            Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
 
-                logger.info("[{}] Successfully received plans from agent: {}", sessionId, agentPlans);
-                logger.info("[{}] Contexto do agente recuperado com sucesso.", sessionId);
-    
-                try {
-                    logger.info("[{}] Initializing AI Service...", sessionId);
-                    AIService aiService = new AIService(this.modelManagaer, sessionId, agentPlans);
-                    state.setAiService(aiService);
-                    state.setInitializing(false); // Libera o bloqueio de inicialização.
-                    state.setInitialized(true); // Marca a sessão como totalmente inicializada.
-                    logger.info("[{}] AI Service initialized and stored.", sessionId);
-        
-                    sendToSession(session, "Connection stabilized and IA session ready.");
-                } catch (Exception e) {
-                    state.setInitializing(false); // Garante a liberação do bloqueio em caso de erro.
+            if (cause instanceof java.util.concurrent.TimeoutException) {
+                logger.error("[{}] Timed out waiting for agent to respond with plans.", sessionId, cause);
+                sendToSession(session, "Error: Could not get plans from agent. The agent did not respond in time.");
+            } else if (cause instanceof java.io.IOException || (cause instanceof RuntimeException && cause.getMessage().contains("Cannot connect to AI model"))) {
+                logger.error("[{}] Failed to connect to a required service (ContextNet or AI): {}", sessionId, cause.getMessage());
+                sendToSession(session, "Error: " + cause.getMessage());
+            } 
+            else {
+                logger.error("[{}] Failed to get plans from agent. Reason: {}", sessionId, cause.getMessage(), cause);
+                sendToSession(session, "Error: Could not get plans from agent. " + cause.getMessage());
+            }
 
-                    logger.error("[{}] Failed to initialize AI service after getting plans.", sessionId, e);
-                    sendToSession(session, "Error: AI model initialization failed. " + e.getMessage());
-                
+            try {
+                if (session.isOpen()) {
+                    session.close(CloseStatus.SERVER_ERROR.withReason(cause.getMessage()));
                 }
-            })
-            .exceptionally(ex -> {   
-                state.setInitializing(false); // Libera o bloqueio em caso de erro.
-                logger.error("[{}] Failed to get plans from agent. Reason: {}", sessionId, ex.getMessage(), ex);
-                sendToSession(session, "Error: Could not get plans from agent. The agent did not respond.");
-                
-                return null;
-            });
+            } catch (Exception e) {
+                logger.error("[{}] Error closing session after failure.", sessionId, e);
+            }
+
+            return null;
+        });
     }
 
     /** Handles all messages after the initial setup, translating user input into KQML commands and sending them to the ContextNet. */
@@ -127,41 +148,67 @@ public class ContextNetWebSocketController extends TextWebSocketHandler {
         String sessionId = session.getId();
         WebSocketSessionState state = sessions.get(sessionId);
 
-        if (state == null || !state.isInitialized() || state.isInitializing()) {
-             throw new IllegalStateException("Session is not ready or has been closed. Please wait for 'Connection stabilized' message.");
+        if (state == null || !state.isInitialized()) {
+            logger.warn("[{}] Received message, but session is not fully initialized. Ignoring.", sessionId);
+            sendToSession(session, "Warning: Session not ready. Please wait for 'Connection stabilized' message.");
+            return;
+        }
+
+        if (!state.tryStartProcessing()) {
+            logger.warn("[{}] Received message while another is still being processed. Ignoring.", sessionId);
+            sendToSession(session, "Warning: Previous message is still being processed. Please wait.");
+            return;
         }
         AIService aiService = state.getAiService();
 
-        logger.info("[{}] Handling subsequent message: {}", sessionId, payload);
+        logger.info("[{}] Handling subsequent message: '{}'", sessionId, payload);
 
-        List<String> kqmlMessages = aiService.getKQMLMessages(sessionId, payload);
-        logger.info("[{}] AI translated message to {} KQML command(s): {}", sessionId, kqmlMessages.size(), kqmlMessages);
+        aiService.getKQMLMessages(sessionId, payload)
+            .thenAccept(kqmlMessages -> {
+                logger.info("[{}] AI translated message to {} KQML command(s): {}", sessionId, kqmlMessages.size(), kqmlMessages);
+                ContextNetClient client = state.getContextNetClient();
 
-        ContextNetClient client = state.getContextNetClient();
+                // Se houver múltiplos comandos, envie-os com um pequeno atraso entre eles.
+                // Este loop ainda é bloqueante, mas apenas por curtos períodos.
+                // Para uma solução totalmente não bloqueante, seria necessário um agendador.
+                for (int i = 0; i < kqmlMessages.size(); i++) {
+                    String kqmlMessage = kqmlMessages.get(i);
+                    String fullKqmlMessage = String.format("achieve,%s,%s", client.getDestinationUUID(), kqmlMessage);
+                    client.sendToContextNet(fullKqmlMessage);
+                    logger.debug("[{}] Sent to ContextNet: {}", sessionId, fullKqmlMessage);
 
-        // Envia os comandos com um atraso para evitar condição de corrida no agente.
-        for (int i = 0; i < kqmlMessages.size(); i++) {
-            String kqmlMessage = kqmlMessages.get(i);
-            String fullKqmlMessage = String.format("achieve,%s,%s", client.getDestinationUUID(), kqmlMessage);
-            client.sendToContextNet(fullKqmlMessage);
-            logger.debug("[{}] Sent to ContextNet: {}", sessionId, fullKqmlMessage);
-
-            // Adiciona um atraso de 1 segundo, exceto após o último comando.
-            if (i < kqmlMessages.size() - 1) {
-                try {
-                    Thread.sleep(1000);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    logger.error("Thread interrupted while waiting to send next command", e);
+                    if (i < kqmlMessages.size() - 1) {
+                        try {
+                            Thread.sleep(1000);
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                            logger.error("Thread interrupted while waiting to send next command", e);
+                            break; // Sai do loop se a thread for interrompida
+                        }
+                    }
                 }
-            }
-        }
+            })
+            .exceptionally(ex -> {
+                logger.error("[{}] Error processing AI translation for subsequent message.", sessionId, ex);
+                sendToSession(session, "Error during AI translation: " + ex.getMessage());
+                return null;
+            })
+            .whenComplete((res, ex) -> {
+                state.finishProcessing(); // Libera o semáforo, permitindo a próxima mensagem
+            });
     }
 
     /** Invoked when a WebSocket connection is closed, performing cleanup by removing the client and terminating the AI model session. */
     @Override
     public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {
         String sessionId = session.getId();
+        WebSocketSessionState state = sessions.get(sessionId);
+        if (state != null && state.getContextNetClient() != null) {
+            // Cancela qualquer requisição pendente para evitar que fique "presa"
+            state.getContextNetClient().cancelPendingRequests();
+            state.getContextNetClient().cancelConnectionTimeout();
+        }
+
         sessions.remove(sessionId);
         modelManagaer.endSession(sessionId);
         logger.info("WebSocket and AI sessions closed for id: {}", sessionId);
@@ -172,7 +219,6 @@ public class ContextNetWebSocketController extends TextWebSocketHandler {
     /** Sends a string message to a specific WebSocket session if it is open. */
     private void sendToSession(WebSocketSession session, String msg) {
         try { 
-            // Sincroniza o acesso à sessão para evitar que múltiplas threads escrevam ao mesmo tempo.
             synchronized (session) {
                 if (session.isOpen())  session.sendMessage(new TextMessage(msg));
             }
