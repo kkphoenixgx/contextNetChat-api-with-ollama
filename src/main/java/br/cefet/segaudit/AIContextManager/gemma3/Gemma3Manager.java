@@ -8,12 +8,14 @@ import java.time.Duration;
 import java.util.Arrays;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
+import java.util.stream.Collectors;
 import java.util.concurrent.ExecutionException;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Component;
@@ -33,10 +35,8 @@ public class Gemma3Manager implements IModelManagaer {
 
     private static final Logger logger = LoggerFactory.getLogger(Gemma3Manager.class);
 
-    private final HttpClient client = HttpClient.newBuilder()
-        .connectTimeout(Duration.ofSeconds(20))
-        .build();
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final HttpClient client;
+    private final ObjectMapper objectMapper;
 
     @Value("${ollama.api.url}")
     private String ollamaUrl;
@@ -47,10 +47,18 @@ public class Gemma3Manager implements IModelManagaer {
     @Value("${ollama.model.context-path}")
     private Resource contextResource;
 
-    private final OllamaOptions ollamaOptions = new OllamaOptions(4096);
+    private final OllamaOptions ollamaOptions = new OllamaOptions(
+        4096
+    );
 
     private final Map<String, long[]> activeSessions = new ConcurrentHashMap<>();
     private final Map<String, CompletableFuture<?>> pendingRequests = new ConcurrentHashMap<>();
+
+    @Autowired
+    public Gemma3Manager(HttpClient client, ObjectMapper objectMapper) {
+        this.client = client;
+        this.objectMapper = objectMapper;
+    }
 
     /** Translates a user message into a list of KQML commands using the session context. */
     @Override
@@ -68,13 +76,19 @@ public class Gemma3Manager implements IModelManagaer {
             CompletableFuture<TranslationResult> future = makeRequest(jsonBody).thenApply(response -> {
                 activeSessions.put(sessionId, response.context());
                 String rawResponse = response.response().trim();
+                
                 logger.info("Ollama raw response for session {}: {}", sessionId, rawResponse);
-                var kqmlMessages = Arrays.asList(rawResponse.split("\\r?\\n"));
+               
+                // var kqmlMessages = Arrays.asList(rawResponse.split("\\r?\\n"));
+                var kqmlMessages = rawResponse.lines()
+                                              .map(String::trim)
+                                              .filter(line -> !line.isEmpty())
+                                              .collect(Collectors.toList());
                 return new TranslationResult(kqmlMessages, response.promptEvalCount());
             });
 
             pendingRequests.put(sessionId, future);
-            future.whenComplete((result, ex) -> pendingRequests.remove(sessionId)); // Limpa quando completar
+            future.whenComplete((result, ex) -> pendingRequests.remove(sessionId));
             return future;
         } catch (Exception e) {
             logger.error("Failed to translate message for session {}", sessionId, e);
@@ -101,8 +115,6 @@ public class Gemma3Manager implements IModelManagaer {
     public int initializeUserSession(String sessionId, String agentPlans) {
         
         try {
-            // This method is called in a blocking chain, so we can block here for now.
-            // For a fully async startup, this would also return a CompletableFuture.
              String promptTemplate = FileUtil.readResourceAsString(contextResource);
              String plansContent = agentPlans.substring(agentPlans.indexOf('"') + 1, agentPlans.lastIndexOf('"'));
              logger.debug("Formatted plans received from agent being sent to AI: \n{}", plansContent);
@@ -126,7 +138,7 @@ public class Gemma3Manager implements IModelManagaer {
             Throwable cause = e.getCause();
             if (cause instanceof IOException) {
                 logger.error("Failed to initialize user session {} due to a network error: {}", sessionId, cause.getMessage());
-                // Re-throw as a more specific exception to be handled upstream.
+
                 throw new RuntimeException("Cannot connect to AI model. Please check network connectivity and firewall settings.", cause);
             }
             throw new RuntimeException("An unexpected error occurred during AI session initialization.", e);

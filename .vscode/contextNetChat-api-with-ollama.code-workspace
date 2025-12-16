@@ -42,6 +42,7 @@
 		"editor.tokenColorCustomizations": {
 			"textMateRules": [],
 			"comments": ""
-		}
+		},
+		"java.configuration.updateBuildConfiguration": "interactive"
 	}
 }

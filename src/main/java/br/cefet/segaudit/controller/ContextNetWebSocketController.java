@@ -59,10 +59,8 @@ public class ContextNetWebSocketController extends TextWebSocketHandler {
                 throw new IllegalStateException("Session state not found.");
             }
 
-            // Se a sessão não foi inicializada e não está em processo de inicialização, trata como a primeira mensagem.
             if (!state.isInitialized() && !state.isInitializing()) {
                 handleFirstMessage(session, payload);
-            // Se já foi inicializada, trata como mensagem subsequente.
             } else {
                 handleSubsequentMessages(session, payload);
             }
@@ -79,7 +77,6 @@ public class ContextNetWebSocketController extends TextWebSocketHandler {
         logger.info("[{}] Handling first message. Payload: {}", sessionId, payload);
         WebSocketSessionState state = sessions.get(sessionId);
 
-        // Marca que a inicialização começou para bloquear outras mensagens.
         state.setInitializing(true);
 
         ContextNetConfig config = objectMapper.readValue(payload, ContextNetConfig.class);
@@ -98,19 +95,20 @@ public class ContextNetWebSocketController extends TextWebSocketHandler {
         state.setContextNetClient(client);
         logger.info("[{}] ContextNetClient created and stored.", sessionId);
         
-        // Aguarda a conexão ser estabelecida antes de prosseguir.
         client.getConnectionFuture().thenCompose(v -> {
             logger.info("[{}] Connection to ContextNet established. Fetching agent plans...", sessionId);
             //? Busca os planos do agente de forma assíncrona.
             return client.fetchAgentPlans().orTimeout(120, java.util.concurrent.TimeUnit.SECONDS); // Adiciona um timeout de 2m
-        }).thenCompose(agentPlans -> {
+        })
+          .thenCompose(agentPlans -> {
             logger.info("[{}] Successfully received plans from agent: {}", sessionId, agentPlans);
             logger.info("[{}] Contexto do agente recuperado com sucesso.", sessionId);
             logger.info("[{}] Initializing AI Service...", sessionId);
             AIService aiService = new AIService(this.modelManagaer, sessionId, contextNetExecutor);
             state.setAiService(aiService);
             return aiService.initialize(agentPlans);
-        }).thenAccept(v -> {
+        })
+          .thenAccept(v -> {
             state.setInitializing(false); // Libera o bloqueio de inicialização.
             state.setInitialized(true); // Marca a sessão como totalmente inicializada.
             logger.info("[{}] AI Service initialized and stored.", sessionId);

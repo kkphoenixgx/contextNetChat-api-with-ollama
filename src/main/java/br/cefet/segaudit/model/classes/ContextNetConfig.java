@@ -6,8 +6,8 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 public class ContextNetConfig {
     public String gatewayIP;
     public int gatewayPort;
-    @JsonProperty("agentUUID") // Mapeia o campo JSON "agentUUID" para este atributo
+    @JsonProperty("agentUUID")
     public UUID myUUID;
-    @JsonProperty("destinationUUID") // Mapeia o campo JSON "destinationUUID" para este atributo
+    @JsonProperty("destinationUUID")
     public UUID destinationUUID;
 }

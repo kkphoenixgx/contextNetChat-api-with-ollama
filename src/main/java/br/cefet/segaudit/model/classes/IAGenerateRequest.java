@@ -6,22 +6,37 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 /**
  * Represents the JSON request body sent to the Ollama /api/generate endpoint.
  * It includes the model name, prompt, and optional parameters like context and options.
- */
+*/
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record IAGenerateRequest(
     String model,
     String prompt,
     long[] context,
     OllamaOptions options,
-    @JsonProperty("stream") boolean stream
+    @JsonProperty("stream") boolean stream,
+    @JsonProperty("think") Boolean think
 ) {
-    // Constructor for subsequent messages (with context)
     public IAGenerateRequest(String model, String prompt, long[] context, OllamaOptions options) {
-        this(model, prompt, context, options, false);
+        this(model, prompt, context, options, false, false);
     }
 
-    // Constructor for the initial message (without context)
     public IAGenerateRequest(String model, String prompt, OllamaOptions options) {
-        this(model, prompt, null, options, false);
+        this(model, prompt, null, options, false, false);
     }
 }
+// @JsonInclude(JsonInclude.Include.NON_NULL)
+// public record IAGenerateRequest(
+//     String model,
+//     String prompt,
+//     long[] context,
+//     OllamaOptions options,
+//     @JsonProperty("stream") boolean stream
+// ) {
+//     public IAGenerateRequest(String model, String prompt, long[] context, OllamaOptions options) {
+//         this(model, prompt, context, options, false);
+//     }
+
+//     public IAGenerateRequest(String model, String prompt, OllamaOptions options) {
+//         this(model, prompt, null, options, false);
+//     }
+// }
